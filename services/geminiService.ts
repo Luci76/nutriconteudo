@@ -1,6 +1,6 @@
 
 import { GoogleGenAI, Type } from "@google/genai";
-import { PostInput } from "../types";
+import { PostInput, HypeTrend } from "../types";
 
 const SYSTEM_INSTRUCTION = `Você é o NutriConteúdo IA, um assistente especialista em marketing de conteúdo para nutricionistas que atuam no Instagram.
 Sua função é gerar conteúdos prontos para postagem, com foco em: Engajamento, Autoridade profissional e Conversão para consultas.
@@ -13,14 +13,7 @@ REGRAS CRÍTICAS:
 - Sempre incentive o acompanhamento profissional individualizado.
 - O conteúdo deve ser humanizado e gerar conexão.
 
-Você deve retornar obrigatoriamente um objeto JSON seguindo este esquema:
-{
-  "title": "Título chamativo e ético",
-  "type": "Tipo do conteúdo",
-  "structure": "Descrição detalhada dos slides (se carrossel) ou do visual (se reel/post)",
-  "legend": "Legenda completa com emojis, parágrafos e tom solicitado",
-  "cta": "Chamada para ação final"
-}`;
+Você deve retornar obrigatoriamente um objeto JSON.`;
 
 export const generateNutriContent = async (input: PostInput): Promise<any> => {
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
@@ -34,6 +27,7 @@ export const generateNutriContent = async (input: PostInput): Promise<any> => {
     - Tom da comunicação: ${input.tone}
 
     Lembre-se de seguir rigorosamente as regras éticas e o formato de saída JSON.
+    Formato: { "title": string, "type": string, "structure": string, "legend": string, "cta": string }
   `;
 
   try {
@@ -57,10 +51,61 @@ export const generateNutriContent = async (input: PostInput): Promise<any> => {
       },
     });
 
-    const result = JSON.parse(response.text || '{}');
-    return result;
+    return JSON.parse(response.text || '{}');
   } catch (error) {
     console.error("Erro ao gerar conteúdo:", error);
     throw error;
+  }
+};
+
+export const fetchHypeTrends = async (niche: string): Promise<HypeTrend[]> => {
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
+  
+  const prompt = `Quais são as notícias, tendências, polêmicas ou novos estudos mais buscados e comentados nas últimas 48 horas relacionados ao nicho de nutrição: "${niche}"? 
+  Forneça 3 tendências reais. Para cada uma, sugira um 'ângulo' de postagem estratégica para o Instagram.
+  Retorne em JSON: { "trends": [ { "topic": string, "summary": string, "angle": string } ] }`;
+
+  try {
+    const response = await ai.models.generateContent({
+      model: 'gemini-3-flash-preview',
+      contents: prompt,
+      config: {
+        tools: [{ googleSearch: {} }],
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            trends: {
+              type: Type.ARRAY,
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  topic: { type: Type.STRING },
+                  summary: { type: Type.STRING },
+                  angle: { type: Type.STRING },
+                },
+                required: ["topic", "summary", "angle"]
+              }
+            }
+          }
+        }
+      },
+    });
+
+    const result = JSON.parse(response.text || '{"trends":[]}');
+    
+    // Extract grounding URLs
+    const chunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
+    const sources = chunks
+      .filter(chunk => chunk.web)
+      .map(chunk => ({ title: chunk.web.title, uri: chunk.web.uri }));
+
+    return result.trends.map((t: any) => ({
+      ...t,
+      sources: sources.slice(0, 2) // Attach a few relevant sources to each for authority
+    }));
+  } catch (error) {
+    console.error("Erro ao buscar hype:", error);
+    return [];
   }
 };

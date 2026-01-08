@@ -21,3 +21,10 @@ export interface GeneratedPost {
   legend: string;
   cta: string;
 }
+
+export interface HypeTrend {
+  topic: string;
+  summary: string;
+  angle: string;
+  sources: { title: string; uri: string }[];
+}
